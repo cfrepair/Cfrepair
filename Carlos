@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CFREPAIR - Gestión de Taller</title>
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+            --danger-color: #ef4444;
+            --bg-color: #f3f4f6;
+            --card-bg: #ffffff;
+            --text-color: #1f2937;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container { max-width: 900px; margin: 0 auto; }
+        h1 { text-align: center; color: var(--primary-color); letter-spacing: 2px; }
+
+        /* Estilos Generales de Inputs y Botones */
+        input, select, textarea {
+            width: 100%; padding: 10px; border: 1px solid #ccc;
+            border-radius: 6px; box-sizing: border-box; margin-bottom: 10px;
+        }
+
+        .btn {
+            border: none; padding: 10px 15
