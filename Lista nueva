@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CFREPAIR - Gestión Profesional</title>
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --success-color: #10b981;
+            --bg-color: #f3f4f6;
+            --card-bg: #ffffff;
+            --text-color: #1f2937;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container { max-width: 900px; margin: 0 auto; }
+        h1 { text-align: center; color: var(--primary-color); text-transform: uppercase; letter-spacing: 2px; }
+
+        /* Inputs y Botones */
+        input, select, textarea {
+            width: 100%; padding: 12px; border: 1px solid #ccc;
+            border-radius: 8px; box-sizing: border-box; margin-bottom: 12px;
+            font-size: 1em;
+        }
+
+        .btn {
+            border: none; padding: 12px; border-radius: 8px;
+            cursor: pointer; font-weight: bold; color: white; transition: 0.2s;
+            width: 100%; font-size: 1em;
+        }
+        .btn-primary { background-color: var(--primary-color); }
+        .btn-primary:hover { background-color: #1d4ed8; }
+        
+        /* Botones de acción pequeños */
+        .btn-sm { width: auto; padding: 6px 12px; font-size: 0.85em; margin-left: 5px; }
+        .btn-danger { background-color: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer;}
+        .btn-move { background-color: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer;}
+        .btn-success { background-color: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer;}
+
+        /* Tarjeta Principal */
+        .card {
+            background-color: var(--card-bg); padding: 25px;
+            border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            margin-bottom: 25px; border-top: 5px solid var(--primary-color);
+        }
+        
+        .form-row { display: flex; gap: 15px; flex-wrap: wrap; }
+        .form-col { flex: 1; min-width: 200px; }
+        label { display: block; margin-bottom: 6px; font-weight: bold; color: #374151; }
+
+        /* Pestañas */
+        .tabs-container {
+            display: flex; overflow-x: auto; gap: 10px; margin-bottom: 20px; padding-bottom: 5px;
+        }
+        .tab-btn {
+            background: #e5e7eb; border: none; padding: 10px 20px;
+            border-radius: 20px; cursor: pointer; white-space: nowrap;
+            font-weight: bold; color: #6b7280; flex: 1;
+        }
+        .tab-btn.active {
+            background-color: var(--primary-color); color: white;
+            box-shadow: 0 4px 6px rgba(37, 99, 235, 0.3);
+        }
+
+        /* Lista */
+        .order-item {
+            background: var(--card-bg); padding: 15px; margin-bottom: 12px;
+            border-radius: 8px; display: flex; flex-direction: column;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-left: 4px solid #ccc;
+        }
+        .order-item.status-recibido { border-left-color: #6b7280; }
+        .order-item.status-reparacion { border-left-color: #3b82f6; }
+        .order-item.status-listo { border-left-color: #10b981; }
+        .order-item.status-entregado { border-left-color: #1f2937; }
+
+        @media(min-width: 600px) {
+            .order-item { flex-direction: row; justify-content: space-between; align-items: center; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>📱 CFREPAIR</h1>
+    
+    <div class="card">
+        <h2>🛠️ Nuevo Ingreso</h2>
+        <form id="repairForm">
+            <div class="form-row">
+                <div class="form-col">
+                    <label>Cliente</label>
+                    <input type="text" id="clientName" placeholder="Nombre del cliente" required>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-col">
+                    <label>Marca</label>
+                    <select id="deviceBrand" onchange="updateModels()" required>
+                        <option value="">Selecciona Marca...</option>
+                        <option value="Samsung">Samsung</option>
+                        <option value="Apple">Apple (iPhone)</option>
+                        <option value="Xiaomi">Xiaomi / Redmi / Poco</option>
+                        <option value="Motorola">Motorola</option>
+                        <option value="Huawei">Huawei / Honor</option>
+                        <option value="Tecno">Tecno</option>
+                        <option value="Infinix">Infinix</option>
+                        <option value="ZTE">ZTE</option>
+                        <option value="Vivo">Vivo</option>
+                        <option value="Alcatel">Alcatel</option>
+                        <option value="Otro">Otro</option>
+                    </select>
+                </div>
+
+                <div class="form-col">
+                    <label>Modelo (Escribe o Selecciona)</label>
+                    <input list="modelsList" id="deviceModel" placeholder="Ej: A32, Note 10..." required>
+                    <datalist id="modelsList">
+                        </datalist>
+                </div>
+            </div>
+
+            <div class="form-col">
+                <label>Falla / Detalle</label>
+                <textarea id="issue" rows="2" placeholder="Describe el problema..." required></textarea>
+            </div>
+
+            <div class="form-row">
+                <div class="form-col">
+                    <label>Costo ($)</label>
+                    <input type="number" id="cost" placeholder="0.00">
+                </div>
+                <div class="form-col">
+                    <label>Abono ($)</label>
+                    <input type="number" id="deposit" placeholder="0.00">
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Registrar Equipo</button>
+        </form>
+    </div>
+
+    <div style="margin-bottom: 15px;">
+        <input type="text" id="searchInput" placeholder="🔍 Buscar equipo...">
+    </div>
+
+    <div class="tabs-container">
+        <button class="tab-btn active" onclick="setTab('recibido')">📥 Recibido</button>
+        <button class="tab-btn" onclick="setTab('reparacion')">🔧 Taller</button>
+        <button class="tab-btn" onclick="setTab('listo')">✅ Listo</button>
+        <button class="tab-btn" onclick="setTab('entregado')">🏁 Entregado</button>
+    </div>
+
+    <div id="ordersList"></div>
+</div>
+
+<script>
+    /* ================= BASE DE DATOS DE MODELOS ================= */
+    const modelsDB = {
+        "Samsung": [
+            // Serie S
+            "S25 Ultra", "S25 Plus", "S25", "S24 Ultra", "S24 Plus", "S24", "S23 Ultra", "S23+", "S23", "S22 Ultra", "S22+", "S22", "S21 Ultra", "S21+", "S21", "S21 FE", "S20 Ultra", "S20+", "S20", "S20 FE", "S10+", "S10", "S10e", "S9+", "S9", "S8+", "S8",
+            // Serie A
+            "A55", "A54", "A53", "A52s", "A52", "A51", "A50", "A35", "A34", "A33", "A32 4G", "A32 5G", "A31", "A30s", "A30", "A25", "A24", "A23", "A22", "A21s", "A20s", "A20", "A15", "A14", "A13", "A12", "A11", "A10s", "A10", "A05s", "A05", "A04s", "A04", "A03s", "A03 Core", "A02s", "A02", "A01",
+            // Serie J
+            "J8", "J7 Prime", "J7 Pro", "J7 Neo", "J7 Metal", "J6+", "J6", "J5 Prime", "J5 Pro", "J5", "J4+", "J4", "J3", "J2 Prime", "J2 Core", "J1 Ace", "J1",
+            // Serie Note & Z
+            "Note 20 Ultra", "Note 20", "Note 10+", "Note 10", "Note 9", "Note 8", "Z Fold 6", "Z Flip 6", "Z Fold 5", "Z Flip 5", "Z Fold 4", "Z Flip 4"
+        ],
+        "Apple": [
+            "iPhone 17 Pro Max", "iPhone 17 Pro", "iPhone 17 Plus", "iPhone 17",
+            "iPhone 16 Pro Max", "iPhone 16 Pro", "iPhone 16 Plus", "iPhone 16",
+            "iPhone 15 Pro Max", "iPhone 15 Pro", "iPhone 15 Plus", "iPhone 15",
+            "iPhone 14 Pro Max", "iPhone 14 Pro", "iPhone 14 Plus", "iPhone 14",
+            "iPhone 13 Pro Max", "iPhone 13 Pro", "iPhone 13", "iPhone 13 Mini",
+            "iPhone 12 Pro Max", "iPhone 12 Pro", "iPhone 12", "iPhone 12 Mini",
+            "iPhone 11 Pro Max", "iPhone 11 Pro", "iPhone 11",
+            "iPhone XS Max", "iPhone XS", "iPhone XR", "iPhone X",
+            "iPhone 8 Plus", "iPhone 8", "iPhone 7 Plus", "iPhone 7",
+            "iPhone SE 2020", "iPhone SE 2022"
+        ],
+        "Xiaomi": [
+            // Redmi Note
+            "Redmi Note 13 Pro+", "Redmi Note 13 Pro", "Redmi Note 13", "Redmi Note 12 Pro+", "Redmi Note 12", "Redmi Note 11 Pro", "Redmi Note 11S", "Redmi Note 11", "Redmi Note 10 Pro", "Redmi Note 10S", "Redmi Note 10", "Redmi Note 9 Pro", "Redmi Note 9S", "Redmi Note 9", "Redmi Note 8 Pro", "Redmi Note 8",
+            // Redmi Number
+            "Redmi 13C", "Redmi 12", "Redmi 10C", "Redmi 10", "Redmi 9T", "Redmi 9C", "Redmi 9A", "Redmi 9", "Redmi 8", "Redmi 8A",
+            // Poco
+            "Poco X6 Pro", "Poco X6", "Poco X5 Pro", "Poco X5", "Poco X4 Pro", "Poco X3 Pro", "Poco X3 NFC", "Poco F5", "Poco F4", "Poco F3", "Poco M6 Pro", "Poco M5", "Poco M4 Pro", "Poco M3",
+            // Mi
+            "Xiaomi 14 Ultra", "Xiaomi 14", "Xiaomi 13T", "Xiaomi 13", "Xiaomi 12T", "Xiaomi 12", "Mi 11 Lite", "Mi 11", "Mi 10T"
+        ],
+        "Motorola": [
+            "Moto G84", "Moto G54", "Moto G24", "Moto G14", "Moto G13", "Moto G72", "Moto G60", "Moto G52", "Moto G42", "Moto G41", "Moto G32", "Moto G31", "Moto G22", "Moto G20", "Moto G10", "Moto G9 Plus", "Moto G9 Play", "Moto G8 Power", "Moto G8 Plus", "Moto G8 Play", "Moto G7 Power", "Moto G6",
+            "Moto E40", "Moto E32", "Moto E22", "Moto E20", "Moto E13", "Moto E7", "Moto E6s", "Edge 40", "Edge 30"
+        ],
+        "Huawei": [
+            "Pura 70", "P60 Pro", "P50 Pro", "P40 Pro", "P40 Lite", "P30 Pro", "P30 Lite", "P20 Pro", "P20 Lite",
+            "Mate 60", "Mate 50", "Mate 40", "Mate 20 Lite",
+            "Nova 12", "Nova 11", "Nova 10", "Nova 9", "Nova 8i", "Nova 7i", "Nova 5T",
+            "Y9a", "Y9s", "Y9 Prime", "Y9 2019", "Y8s", "Y7a", "Y7p", "Y6p", "Y6 2019", "Y5p"
+        ],
+        "Tecno": [
+            "Spark 20 Pro+", "Spark 20", "Spark 10 Pro", "Spark 10", "Spark 9 Pro", "Spark 8C", "Spark 7", "Spark 6 Go",
+            "Camon 30", "Camon 20 Premier", "Camon 20", "Camon 19 Pro", "Camon 18",
+            "Pova 6", "Pova 5 Pro", "Pova 5", "Pova 4", "Pova Neo", "Pop 8", "Pop 7", "Pop 6"
+        ],
+        "Infinix": [
+            "Note 40 Pro", "Note 40", "Note 30 Pro", "Note 30", "Note 12 G96", "Note 12", "Note 11 Pro", "Note 10 Pro", "Note 8", "Note 7",
+            "Hot 40 Pro", "Hot 40i", "Hot 30", "Hot 30i", "Hot 20", "Hot 12", "Hot 11s", "Hot 10s", "Hot 10", "Hot 9 Play",
+            "Smart 8", "Smart 7", "Smart 6", "Zero 30", "Zero X Pro"
+        ],
+        "ZTE": [
+            "Blade V50", "Blade V40", "Blade V30", "Blade A72", "Blade A71", "Blade A52", "Blade A51", "Blade A31", "Axon 50", "Axon 40"
+        ],
+        "Vivo": [
+            "V30", "V29", "V27", "V25", "Y36", "Y35", "Y27", "Y22s", "Y21s", "Y17s", "Y16", "Y02t", "X100"
+        ],
+        "Alcatel": [
+            "1S", "1B", "1SE", "3X", "3L", "1V", "1 (2021)"
+        ],
+        "Honor": [
+            "Magic 6 Pro", "Magic 5 Pro", "Honor 90", "Honor 90 Lite", "Honor 70", "Honor 50",
+            "X9b", "X9a", "X8b", "X8a", "X7b", "X7a", "X6a", "X6", "X5 Plus"
+        ]
+    };
+
+    /* ================= LÓGICA DE LA APP ================= */
+    
+    // Función para actualizar la lista de modelos según la marca
+    function updateModels() {
+        const brand = document.getElementById('deviceBrand').value;
+        const datalist = document.getElementById('modelsList');
+        const inputModel = document.getElementById('deviceModel');
+        
+        datalist.innerHTML = ''; // Limpiar lista anterior
+        inputModel.value = '';   // Limpiar campo de texto
+
+        if (modelsDB[brand]) {
+            modelsDB[brand].forEach(model => {
+                const option = document.createElement('option');
+                option.value = model;
+                datalist.appendChild(option);
+            });
+        }
+    }
+
+    // --- Variables y Funciones de Gestión (Igual que versión anterior) ---
+    let orders = JSON.parse(localStorage.getItem('cfrepair_v4_orders')) || [];
+    let currentTab = 'recibido';
+
+    const form = document.getElementById('repairForm');
+    const listContainer = document.getElementById('ordersList');
+    const searchInput = document.getElementById('searchInput');
+    const tabs = document.querySelectorAll('.tab-btn');
+
+    renderList();
+
+    // 1. REGISTRAR ORDEN
+    form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        
+        const newOrder = {
+            id: Date.now(),
+            client: document.getElementById('clientName').value,
+            brand: document.getElementById('deviceBrand').value,
+            model: document.getElementById('deviceModel').value,
+            issue: document.getElementById('issue').value,
+            cost: parseFloat(document.getElementById('cost').value) || 0,
+            deposit: parseFloat(document.getElementById('deposit').value) || 0,
+            date: new Date().toLocaleDateString(),
+            status: 'recibido'
+        };
+
+        orders.unshift(newOrder);
+        saveData();
+        form.reset();
+        
+        if(currentTab !== 'recibido') setTab('recibido');
+        else renderList();
+    });
+
+    // 2. CAMBIAR PESTAÑA
+    window.setTab = (tabName) => {
+        currentTab = tabName;
+        tabs.forEach(btn => btn.classList.remove('active'));
+        event.target.classList.add('active');
+        renderList();
+    }
+
+    // 3. BUSCADOR
+    searchInput.addEventListener('input', renderList);
+
+    // 4. RENDERIZAR
+    function renderList() {
+        listContainer.innerHTML = '';
+        const searchTerm = searchInput.value.toLowerCase();
+
+        const filteredOrders = orders.filter(order => {
+            const matchesTab = order.status === currentTab;
+            const matchesSearch = 
+                order.client.toLowerCase().includes(searchTerm) || 
+                order.model.toLowerCase().includes(searchTerm) ||
+                order.brand.toLowerCase().includes(searchTerm);
+            return matchesTab && matchesSearch;
+        });
+
+        if (filteredOrders.length === 0) {
+            listContainer.innerHTML = `<p style="text-align:center; color:#888;">No hay equipos aquí.</p>`;
+            return;
+        }
+
+        filteredOrders.forEach(order => {
+            const saldo = (order.cost - order.deposit).toFixed(2);
+            let btns = '';
+
+            if(currentTab === 'recibido') {
+                btns = `<button class="btn-sm btn-move" onclick="changeStatus(${order.id}, 'reparacion')">Reparar ➡️</button>`;
+            } else if (currentTab === 'reparacion') {
+                btns = `<button class="btn-sm btn-success" onclick="changeStatus(${order.id}, 'listo')">Listo ✅</button>`;
+            } else if (currentTab === 'listo') {
+                btns = `<button class="btn-sm btn-move" onclick="changeStatus(${order.id}, 'entregado')">Entregar 👋</button>`;
+            } else {
+                btns = `<button class="btn-sm btn-danger" onclick="deleteOrder(${order.id})">🗑️</button>`;
+            }
+
+            // Botón de eliminar siempre disponible pero pequeño en otras etapas
+            if(currentTab !== 'entregado') {
+                 btns += `<button class="btn-sm btn-danger" onclick="deleteOrder(${order.id})" title="Borrar">x</button>`;
+            }
+
+            const div = document.createElement('div');
+            div.className = `order-item status-${order.status}`;
+            div.innerHTML = `
+                <div style="flex:1;">
+                    <h3 style="margin:0 0 5px 0;">${order.client}</h3>
+                    <div style="font-weight:bold; color:#2563eb;">${order.brand} - ${order.model}</div>
+                    <div style="font-size:0.9em; color:#555;">${order.issue}</div>
+                    <div style="font-size:0.85em; margin-top:5px;">
+                        Cobro: <b>$${order.cost}</b> | Resta: <b style="color:${saldo > 0 ? '#ef4444':'#10b981'}">$${saldo}</b>
+                    </div>
+                </div>
+                <div style="margin-top:10px; display:flex; justify-content:flex-end;">
+                    ${btns}
+                </div>
+            `;
+            listContainer.appendChild(div);
+        });
+    }
+
+    // 5. FUNCIONES DE ACCIÓN
+    window.changeStatus = (id, newStatus) => {
+        const idx = orders.findIndex(o => o.id === id);
+        if(idx !== -1) {
+            orders[idx].status = newStatus;
+            saveData();
+            renderList();
+        }
+    }
+
+    window.deleteOrder = (id) => {
+        if(confirm('¿Eliminar registro?')) {
+            orders = orders.filter(o => o.id !== id);
+            saveData();
+            renderList();
+        }
+    }
+
+    function saveData() {
+        localStorage.setItem('cfrepair_v4_orders', JSON.stringify(orders));
+    }
+</script>
+
+</body>
+</html>
