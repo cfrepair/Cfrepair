@@ -1,463 +1,383 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>CFREPAIR - Gestión</title>
-    
-    <!-- 1. ESTILOS Y LIBRERÍAS (Versiones de Alta Compatibilidad) -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-
-    <style>
-        body { background-color: #f3f4f6; font-family: system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
-        .receipt-paper { background-image: radial-gradient(#e5e7eb 1px, transparent 1px); background-size: 20px 20px; }
-        
-        /* Pantalla de Carga */
-        #loader-container { position: fixed; inset: 0; background: white; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-        #error-box { display: none; background: #fee2e2; color: #991b1b; padding: 20px; border-radius: 10px; text-align: center; max-width: 80%; }
-        .spinner { width: 40px; height: 40px; border: 4px solid #e5e7eb; border-top-color: #2563eb; border-radius: 50%; animation: spin 1s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        
-        @media print { 
-            .no-print { display: none !important; } 
-            .printable-area { position: absolute; top: 0; left: 0; width: 100%; margin: 0; box-shadow: none; } 
-        }
-    </style>
-</head>
-<body>
-
-    <!-- PANTALLA DE CARGA / ERROR -->
-    <div id="loader-container">
-        <div id="spinner-box">
-            <div class="spinner"></div>
-            <p class="mt-4 text-gray-500 font-bold text-sm">Iniciando CFREPAIR...</p>
-        </div>
-        <div id="error-box">
-            <h2 class="font-bold text-lg mb-2">⚠️ No se pudo iniciar</h2>
-            <p id="error-msg" class="text-sm mb-4">Error desconocido.</p>
-            <button onclick="localStorage.clear(); location.reload()" class="bg-red-600 text-white px-4 py-2 rounded font-bold">Borrar Datos y Reintentar</button>
-        </div>
-    </div>
-
-    <div id="root"></div>
-
-    <!-- SCRIPT DE SEGURIDAD -->
-    <script>
-        // Si ocurre un error global, mostrarlo
-        window.onerror = function(msg, url, line) {
-            document.getElementById('spinner-box').style.display = 'none';
-            document.getElementById('error-box').style.display = 'block';
-            document.getElementById('error-msg').innerText = msg;
-        };
-        
-        // Timeout de seguridad: Si en 8 segundos no carga, mostrar botón de reset
-        setTimeout(function() {
-            if(document.getElementById('loader-container').style.display !== 'none') {
-                document.getElementById('spinner-box').style.display = 'none';
-                document.getElementById('error-box').style.display = 'block';
-                document.getElementById('error-msg').innerText = "Tiempo de espera agotado. Posible error de red o memoria.";
-            }
-        }, 8000);
-    </script>
-
-    <!-- LÓGICA DE LA APP -->
-    <script type="text/babel">
-        const { useState, useEffect } = React;
-        const { createRoot } = ReactDOM;
-        const { 
-            Smartphone, PlusCircle, ClipboardList, CheckCircle, User, Settings, Trash2, 
-            Edit, Save, X, Printer, Wrench, DollarSign, Contact, AlertTriangle, Share2, 
-            Camera, Box, Tag, FileText, CreditCard, ChevronDown, Download
-        } = lucide;
-
-        // --- HELPERS ---
-        const safeId = (id) => String(id || Math.random().toString().slice(2,8));
-        const safeFloat = (val) => { 
-            if(typeof val === 'string') val = val.replace(',', '.');
-            const n = parseFloat(val); 
-            return isNaN(n) ? 0 : n; 
-        };
-        const formatBs = (val) => safeFloat(val).toLocaleString('es-VE', {minimumFractionDigits:2, maximumFractionDigits:2});
-        const formatUsd = (val) => safeFloat(val).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
-
-        const COMMON_ISSUES = ["Pantalla Rota", "Batería", "Pin Carga", "Software", "No Enciende", "Mojado"];
-        const DEFAULT_TERMS = "1. Diagnóstico 24-48h.\n2. No responsable por datos.\n3. Mojados sin garantía.\n4. Retirar < 30 días.";
-        
-        const PHONE_DB = {
-            "Infinix": ["Hot 60", "Hot 50", "Hot 40", "Note 40", "Smart 9", "Smart 8", "GT 20 Pro"],
-            "Tecno": ["Spark 30", "Spark 20", "Pova 6", "Camon 30", "Pop 9", "Pop 8"],
-            "Samsung": ["Galaxy S24", "A55", "A35", "A15", "A05s", "J7 Prime"],
-            "Xiaomi": ["Redmi Note 13", "13C", "12", "POCO X6", "Redmi 9A"],
-            "Motorola": ["G84", "G54", "E13", "G14"],
-            "Apple": ["iPhone 16", "iPhone 15", "14", "13", "11", "XR"],
-            "Otro": []
-        };
-
-        // --- COMPONENTE ICONO SEGURO ---
-        const Icon = ({ name, size = 24, className = "" }) => {
-            return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
-        };
-
-        // --- COMPONENTE INPUT MONEDA ---
-        const SmartInput = ({ label, value, onChange, rate, currency }) => {
-            const [focused, setFocused] = useState(false);
-            const displayVal = focused ? value : (value == 0 ? '' : (currency === 'BS' ? formatBs(value) : value));
-            
-            let refText = '';
-            if(rate > 0 && value > 0) {
-                const valNum = safeFloat(value);
-                const rateNum = safeFloat(rate);
-                if(currency === 'USD') {
-                   refText = `Ref: Bs ${formatBs(valNum * rateNum)}`;
-                } else {
-                   refText = `Ref: $ ${formatUsd(valNum / rateNum)}`;
-                }
-            }
-
-            return (
-                <div>
-                    <label className="text-xs font-bold text-gray-500 block mb-1">{label}</label>
-                    <div className="relative">
-                        <span className={`absolute left-3 top-1/2 -translate-y-1/2 font-bold ${currency==='BS'?'text-blue-600':'text-green-600'}`}>
-                            {currency==='BS'?'Bs':'$'}
-                        </span>
-                        <input 
-                            type={focused ? "number" : "text"} 
-                            step="0.01"
-                            className="w-full pl-9 p-2 border rounded-lg font-bold text-gray-700 outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                            value={displayVal}
-                            onChange={e => onChange(e.target.value)}
-                            onFocus={() => setFocused(true)}
-                            onBlur={() => setFocused(false)}
-                            placeholder="0.00"
-                        />
-                    </div>
-                    {refText && <div className="text-right text-xs text-blue-600 font-bold mt-1">{refText}</div>}
-                </div>
-            );
-        };
-
-        // --- APP PRINCIPAL ---
-        function App() {
-            const [tab, setTab] = useState('dashboard');
-            const [tickets, setTickets] = useState([]);
-            const [inventory, setInventory] = useState([]);
-            const [selTicket, setSelTicket] = useState(null);
-            const [showReceipt, setShowReceipt] = useState(false);
-            const [showModal, setShowModal] = useState(false);
-            const [logo, setLogo] = useState(null);
-            const [rate, setRate] = useState(0);
-            const [terms, setTerms] = useState(DEFAULT_TERMS);
-            const [generatedReceiptImage, setGeneratedReceiptImage] = useState(null);
-            const [isGenerating, setIsGenerating] = useState(false);
-
-            const [form, setForm] = useState({ customer: '', phone: '', desc: '', cost: 0, deposit: 0, paymentCurrency: 'USD', images: [], customerPhone: '' });
-            const [brand, setBrand] = useState("");
-            const [model, setModel] = useState("");
-            const [isManual, setIsManual] = useState(false);
-            const [searchTerm, setSearchTerm] = useState('');
-            const [listFilter, setListFilter] = useState('Todos');
-            const [newItem, setNewItem] = useState({ name: '', stock: '', cost: '', price: '' });
-
-            // Cargar Datos
-            useEffect(() => {
-                // Ocultar loader explícitamente
-                document.getElementById('loader-container').style.display = 'none';
-                
-                try {
-                    const t = localStorage.getItem('cf_tickets'); 
-                    if(t) {
-                        const clean = JSON.parse(t).map(x => ({
-                            ...x, 
-                            id: String(x.id),
-                            cost: parseFloat(x.cost||0),
-                            deposit: parseFloat(x.deposit||0)
-                        }));
-                        setTickets(clean);
-                    }
-                    const i = localStorage.getItem('cf_inv'); if(i) setInventory(JSON.parse(i));
-                    const l = localStorage.getItem('cf_logo'); if(l) setLogo(l);
-                    const r = localStorage.getItem('cf_rate'); if(r) setRate(parseFloat(r));
-                    const tr = localStorage.getItem('cf_terms'); if(tr) setTerms(tr);
-                    
-                    setTimeout(() => { if(window.lucide) window.lucide.createIcons(); }, 100);
-                } catch(e) { console.error(e); }
-            }, []);
-
-            useEffect(() => { setTimeout(() => { if(window.lucide) window.lucide.createIcons(); }, 100); }, [tab, showReceipt, showModal, generatedReceiptImage, listFilter, tickets]);
-
-            const saveLocal = (key, data) => {
-                try { localStorage.setItem(key, JSON.stringify(data)); return true; }
-                catch(e) { alert("Memoria llena."); return false; }
-            };
-
-            const handleSaveTicket = (e) => {
-                e.preventDefault();
-                const id = Date.now().toString();
-                const finalPhone = isManual ? form.phone : `${brand} ${model}`;
-                const newT = { 
-                    ...form, id, phone: finalPhone, status: 'Recibido', 
-                    date: new Date().toLocaleDateString('es-VE'), 
-                    createdAt: Date.now(), rateAtCreation: rate,
-                    cost: parseFloat(form.cost||0), deposit: parseFloat(form.deposit||0)
-                };
-                const next = [newT, ...tickets];
-                if(saveLocal('cf_tickets', next)) {
-                    setTickets(next);
-                    setSelTicket(newT);
-                    setShowReceipt(true);
-                    setForm({ customer: '', phone: '', desc: '', cost: 0, deposit: 0, currency: 'USD', images: [], customerPhone: '', imei: '', passcode: '' });
-                    setBrand(""); setModel(""); setIsManual(false);
-                }
-            };
-
-            const handleSaveItem = (e) => { e.preventDefault(); const id=Date.now().toString(); const next=[...inventory, {...newItem, id}]; if(saveLocal('cf_inv', next)) { setInventory(next); setNewItem({name:'',stock:'',cost:'',price:''}); } };
-            const deleteItem = (id, type) => { if(!confirm('¿Eliminar?')) return; if (type === 'ticket') { const next = tickets.filter(x=>x.id!==id); saveLocal('cf_tickets', next); setTickets(next); setShowModal(false); } else { const next = inventory.filter(x=>x.id!==id); saveLocal('cf_inv', next); setInventory(next); } };
-            const updateStock = (id, d) => { const next = inventory.map(x=>x.id===id?{...x, stock: Math.max(0, parseInt(x.stock)+d)}:x); saveLocal('cf_inv', next); setInventory(next); };
-            const updateStatus = (id, s) => { const next = tickets.map(x=>x.id===id?{...x, status:s}:x); saveLocal('cf_tickets', next); setTickets(next); if(selTicket) setSelTicket({...selTicket, status:s}); };
-            
-            const handlePhoto = (e) => {
-                const f = e.target.files[0]; if(!f)return;
-                const r = new FileReader();
-                r.onload = (ev) => {
-                    const img = new Image(); img.src = ev.target.result;
-                    img.onload = () => {
-                        const c = document.createElement('canvas'); const ctx = c.getContext('2d');
-                        const max = 300; const scale = max/img.width; c.width = max; c.height = img.height*scale;
-                        ctx.drawImage(img,0,0,c.width,c.height);
-                        const url = c.toDataURL('image/jpeg', 0.5);
-                        if(form.images.length < 3) setForm(p=>({...p, images: [...p.images, url]})); else alert("Máx 3 fotos");
-                    };
-                }; r.readAsDataURL(f);
-            };
-            const removePhoto = (idx) => setForm(prev => ({...prev, images: prev.images.filter((_, i) => i !== idx)}));
-            const handleLogo = (e) => {
-                const f = e.target.files[0]; if(!f) return;
-                const r = new FileReader();
-                r.onload = (ev) => {
-                     const img = new Image(); img.src = ev.target.result;
-                     img.onload = () => {
-                         const c = document.createElement('canvas'); const ctx = c.getContext('2d');
-                         const max = 200; const scale = max/img.width; c.width = max; c.height = img.height*scale;
-                         ctx.drawImage(img, 0, 0, c.width, c.height);
-                         const url = c.toDataURL('image/png');
-                         setLogo(url); saveLocal('cf_logo', url);
-                     }
-                }; r.readAsDataURL(f);
-            };
-
-            const handleGenImage = async () => {
-                setIsGenerating(true);
-                const el = document.getElementById('receipt-content');
-                if(el) {
-                    try {
-                        const btns = document.querySelectorAll('.no-print');
-                        btns.forEach(b => b.style.display = 'none');
-                        await new Promise(r => setTimeout(r, 200));
-                        const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#fff' });
-                        btns.forEach(b => b.style.display = 'flex');
-                        setGeneratedReceiptImage(canvas.toDataURL('image/png'));
-                    } catch(e) { alert("Error imagen"); }
-                }
-                setIsGenerating(false);
-            };
-
-            const openWA = (t, isReceipt) => {
-                let ph = (t.customerPhone||'').replace(/\D/g,'');
-                if(ph.startsWith('04')) ph = '58'+ph.substring(1);
-                const isBs = t.currency === 'BS';
-                const sym = isBs ? 'Bs' : '$';
-                const bal = (safeFloat(t.cost) - safeFloat(t.deposit)).toFixed(2);
-                const r = t.rateAtCreation || rate;
-                let msg = '';
-                if(isReceipt) {
-                    let refTxt = '';
-                    if(r > 0) refTxt = isBs ? `(Ref $${formatUsd(bal/r)})` : `(Ref Bs${formatBs(bal*r)})`;
-                    msg = `🧾 *RECIBO CFREPAIR*\nOrden: #${safeId(t.id).slice(-4)}\nCliente: ${t.customer}\nEquipo: ${t.phone}\nTotal: ${sym}${t.cost}\nResta: ${sym}${bal} ${refTxt}`;
-                } else {
-                    msg = `Hola ${t.customer}, novedad con tu equipo...`;
-                }
-                window.open(`https://api.whatsapp.com/send?phone=${ph}&text=${encodeURIComponent(msg)}`);
-            };
-
-            const handleImportContact = async () => { if(!navigator.contacts) return alert('Ingresa manual'); try{ const c=await navigator.contacts.select(['name','tel'],{multiple:false}); if(c.length) setForm(p=>({...p, customer:c[0].name[0], customerPhone:c[0].tel[0]})); }catch(e){} };
-            const addQuickIssue = (issue) => { setForm(prev => ({ ...prev, desc: prev.desc ? `${prev.desc}, ${issue}` : issue })); };
-
-            // --- VISTAS ---
-            return (
-                <div className="max-w-md mx-auto bg-white min-h-screen shadow-2xl relative pb-20">
-                    
-                    {/* Header */}
-                    <div className="p-4 border-b sticky top-0 bg-white z-30 flex justify-between items-center shadow-sm">
-                        <div className="flex items-center gap-2">
-                            {logo ? <img src={logo} className="h-8 object-contain"/> : <Icon name="wrench" className="text-blue-600"/>}
-                            <h1 className="font-black text-lg text-gray-800">CF<span className="text-blue-600">REPAIR</span></h1>
-                        </div>
-                        {rate > 0 && <span className="text-xs font-bold bg-green-100 text-green-800 px-2 py-1 rounded border border-green-200">Bs {formatBs(rate)}</span>}
-                    </div>
-
-                    <div className="p-4">
-                        {/* DASHBOARD */}
-                        {tab === 'dashboard' && (
-                            <div className="space-y-4 animate-fade-in">
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div onClick={()=>{setListFilter('Recibidos'); setTab('list')}} className="bg-yellow-50 p-4 rounded-lg border-l-4 border-yellow-500 cursor-pointer shadow-sm"><p className="text-xs font-bold text-gray-500">PENDIENTES</p><p className="text-2xl font-bold">{tickets.filter(t => ['Recibido','En Revisión'].includes(t.status)).length}</p></div>
-                                    <div onClick={()=>{setListFilter('Reparando'); setTab('list')}} className="bg-blue-50 p-4 rounded-lg border-l-4 border-blue-500 cursor-pointer shadow-sm"><p className="text-xs font-bold text-gray-500">TALLER</p><p className="text-2xl font-bold">{tickets.filter(t => t.status === 'En Reparación').length}</p></div>
-                                    <div onClick={()=>{setListFilter('Listos'); setTab('list')}} className="bg-green-50 p-4 rounded-lg border-l-4 border-green-500 cursor-pointer shadow-sm"><p className="text-xs font-bold text-gray-500">LISTOS</p><p className="text-2xl font-bold">{tickets.filter(t => t.status === 'Listo').length}</p></div>
-                                    <div onClick={()=>{setListFilter('Entregados'); setTab('list')}} className="bg-purple-50 p-4 rounded-lg border-l-4 border-purple-500 cursor-pointer shadow-sm"><p className="text-xs font-bold text-gray-500">ENTREGADOS</p><p className="text-2xl font-bold">{tickets.filter(t => t.status === 'Entregado').length}</p></div>
-                                </div>
-                                <button onClick={() => setTab('create')} className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold shadow-lg flex justify-center items-center gap-2 active:scale-95 transition-transform"><Icon name="plus-circle"/> Nuevo Ingreso</button>
-                            </div>
-                        )}
-
-                        {/* CREAR */}
-                        {tab === 'create' && (
-                            <form onSubmit={handleSaveTicket} className="space-y-4 animate-fade-in">
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div><label className="text-xs font-bold text-gray-500">CLIENTE</label><input required className="w-full p-2 border rounded" value={form.customer} onChange={e=>setForm({...form, customer:e.target.value})}/></div>
-                                    <div><label className="text-xs font-bold text-gray-500">TELÉFONO</label><div className="flex gap-1"><input id="phoneInput" type="tel" className="w-full p-2 border rounded" value={form.customerPhone} onChange={e=>setForm({...form, customerPhone:e.target.value})}/><button type="button" onClick={handleImportContact} className="bg-blue-100 p-2 rounded text-blue-600"><Icon name="contact" size={18}/></button></div></div>
-                                </div>
-                                <div className="bg-gray-50 p-3 rounded border space-y-2">
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div><label className="text-[10px] font-bold">MARCA</label><select className="w-full p-2 bg-white border rounded text-sm" value={brand} onChange={e=>{setBrand(e.target.value); setIsManual(e.target.value==='Otro'); setModel(""); if(e.target.value==='Otro') setForm({...form, phone: ''});}}><option value="">Ver...</option>{Object.keys(PHONE_DB).map(k=><option key={k} value={k}>{k}</option>)}<option value="Otro">Otro</option></select></div>
-                                        <div><label className="text-[10px] font-bold">MODELO</label>{isManual ? <input className="w-full p-2 bg-white border rounded text-sm" value={form.phone} placeholder="Escribe..." onChange={e=>setForm({...form, phone:e.target.value})}/> : <select className="w-full p-2 bg-white border rounded text-sm" disabled={!brand} value={model} onChange={e=>{setModel(e.target.value); setForm({...form, phone: `${brand} ${e.target.value}`})}}><option value="">Ver...</option>{brand && PHONE_DB[brand]?.map(m=><option key={m} value={m}>{m}</option>)}</select>}</div>
-                                    </div>
-                                    <textarea className="w-full p-2 border rounded text-sm h-20" placeholder="Falla..." value={form.desc} onChange={e=>setForm({...form, desc:e.target.value})}/>
-                                    <div className="flex flex-wrap gap-1">{COMMON_ISSUES.map(i => <button type="button" key={i} onClick={()=>addQuickIssue(i)} className="text-[10px] border px-2 py-1 rounded bg-white hover:bg-blue-50">{i}</button>)}</div>
-                                </div>
-                                <div className="border-t pt-3">
-                                    <div className="flex gap-2 mb-2 bg-gray-100 p-1 rounded">
-                                        <button type="button" onClick={()=>setForm({...form, currency:'USD'})} className={`flex-1 text-xs py-2 rounded font-bold ${form.currency==='USD'?'bg-white text-green-700 shadow':'text-gray-500'}`}>$ USD</button>
-                                        <button type="button" onClick={()=>setForm({...form, currency:'BS'})} className={`flex-1 text-xs py-2 rounded font-bold ${form.currency==='BS'?'bg-white text-blue-700 shadow':'text-gray-500'}`}>Bs VES</button>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-3"><SmartInput label="Total" value={form.cost} onChange={v=>setForm({...form, cost:v})} rate={rate} currency={form.currency}/><SmartInput label="Abono" value={form.deposit} onChange={v=>setForm({...form, deposit:v})} rate={rate} currency={form.currency}/></div>
-                                </div>
-                                <div className="flex gap-2 overflow-x-auto py-2"><label className="flex-shrink-0 w-16 h-16 border-2 border-dashed rounded flex items-center justify-center bg-gray-50 cursor-pointer text-blue-500"><Icon name="camera" size={20}/><input type="file" accept="image/*" className="hidden" onChange={handlePhoto}/></label>{form.images.map((src, idx) => (<div key={idx} className="relative w-16 h-16 flex-shrink-0"><img src={src} className="w-full h-full object-cover rounded border"/><button type="button" onClick={()=>removePhoto(idx)} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 w-5 h-5 flex items-center justify-center text-[10px]">x</button></div>))}</div>
-                                <button className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl shadow text-lg active:scale-95 transition-transform">REGISTRAR</button>
-                            </form>
-                        )}
-
-                        {/* LIST */}
-                        {tab === 'list' && (
-                            <div className="space-y-3 animate-fade-in">
-                                <div className="sticky top-0 bg-f3f4f6 z-10 pb-2 space-y-2">
-                                    <input className="w-full p-2 border rounded shadow-sm" placeholder="Buscar..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/>
-                                    <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">{['Todos', 'Recibidos', 'En Reparación', 'Listos', 'Entregados'].map(f => (<button key={f} onClick={()=>setListFilter(f)} className={`px-3 py-1 rounded-full text-xs font-bold border whitespace-nowrap ${listFilter===f?'bg-blue-600 text-white':'bg-white text-gray-600'}`}>{f}</button>))}</div>
-                                </div>
-                                {tickets.filter(t => {
-                                    const matchSearch = t.customer.toLowerCase().includes(searchTerm.toLowerCase()) || (t.phone && t.phone.toLowerCase().includes(searchTerm.toLowerCase()));
-                                    let matchFilter = true;
-                                    if(listFilter === 'Recibidos') matchFilter = ['Recibido','En Revisión'].includes(t.status);
-                                    else if(listFilter !== 'Todos') matchFilter = t.status === listFilter.replace(/s$/,'') || t.status === listFilter; 
-                                    return matchSearch && matchFilter;
-                                }).map(t => (
-                                    <div key={t.id} onClick={()=>{setSelTicket(t); setViewDetails(true)}} className="bg-white p-3 rounded shadow-sm border flex justify-between items-center cursor-pointer active:bg-gray-50">
-                                        <div><div className="font-bold text-sm">{t.customer} <span className="text-[10px] text-gray-400">#{safeId(t.id).slice(-4)}</span></div><div className="text-xs text-gray-500">{t.phone}</div></div><span className={`text-[10px] px-2 py-1 rounded font-bold ${t.status==='Listo'?'bg-green-100 text-green-800':'bg-gray-100'}`}>{t.status}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-
-                        {/* INVENTORY */}
-                        {tab === 'inventory' && (
-                            <div className="space-y-4 animate-fade-in"><div className="bg-white p-4 rounded shadow"><h3 className="font-bold mb-2 text-sm">Nuevo Repuesto</h3><div className="flex flex-col gap-2"><input className="border p-2 rounded text-sm" placeholder="Nombre" value={newItem.name} onChange={e=>setNewItem({...newItem, name: e.target.value})}/><div className="flex gap-2"><input type="number" className="border p-2 rounded w-1/4 text-sm" placeholder="#" value={newItem.stock} onChange={e=>setNewItem({...newItem, stock: e.target.value})}/><div className="flex-1"><SmartInput label="Costo" value={newItem.cost} onChange={v=>setNewItem({...newItem, cost:v})} rate={rate} currency="USD"/></div><div className="flex-1"><SmartInput label="Venta" value={newItem.price} onChange={v=>setNewItem({...newItem, price:v})} rate={rate} currency="USD"/></div></div><button onClick={handleSaveItem} className="bg-green-600 text-white p-2 rounded font-bold text-sm">Guardar</button></div></div><div className="grid gap-2">{inventory.map(i => (<div key={i.id} className="bg-white p-3 rounded border shadow-sm flex justify-between items-center"><div><div className="font-bold text-sm">{i.name}</div><div className="text-xs text-gray-500">Stock: {i.stock} | Venta: ${i.price}</div></div><div className="flex items-center gap-2"><button onClick={()=>updateStock(i.id, -1)} className="bg-gray-200 w-8 h-8 flex items-center justify-center rounded font-bold">-</button><span className="text-sm font-bold">{i.stock}</span><button onClick={()=>updateStock(i.id, 1)} className="bg-gray-200 w-8 h-8 flex items-center justify-center rounded font-bold">+</button><button onClick={()=>deleteInvItem(i.id)} className="text-red-500 ml-2"><Icon name="trash-2" size={18}/></button></div></div>))}</div></div>
-                        )}
-
-                        {/* SETTINGS */}
-                        {tab === 'settings' && (
-                            <div className="space-y-4 animate-fade-in"><div className="bg-white p-4 rounded shadow"><h3 className="font-bold mb-2">Tasa Bs/$</h3><div className="flex gap-2"><input type="number" className="border p-2 rounded w-full font-bold text-lg" value={rate} onChange={e=>setRate(e.target.value)}/><button onClick={()=>{saveLocal('cf_rate', rate); alert('Guardado')}} className="bg-blue-600 text-white px-4 rounded font-bold">OK</button></div></div><div className="bg-white p-4 rounded shadow flex justify-between items-center"><div><h3 className="font-bold">Logo</h3><p className="text-xs text-gray-500">Toca para cambiar</p></div><label className="w-16 h-16 border-2 border-dashed rounded flex items-center justify-center cursor-pointer">{logo ? <img src={logo} className="w-full h-full object-contain"/> : <Icon name="image" className="text-gray-300"/>}<input type="file" accept="image/*" className="hidden" onChange={handleLogo}/></label></div><div className="bg-white p-4 rounded shadow"><h3 className="font-bold mb-2">Términos</h3><textarea className="w-full border p-2 rounded h-24 text-xs" value={terms} onChange={e=>setTerms(e.target.value)}/><button onClick={()=>{saveLocal('cf_terms', terms); alert('Guardado')}} className="w-full mt-2 bg-gray-800 text-white py-2 rounded text-xs font-bold">Guardar</button></div></div>
-                        )}
-                    </div>
-
-                    {/* MODAL RECIBO */}
-                    {showReceipt && selTicket && (() => {
-                        const isBs = selTicket.currency === 'BS';
-                        const symbol = isBs ? 'Bs.' : '$';
-                        const r = selTicket.rateAtCreation || rate;
-                        const total = safeFloat(selTicket.cost);
-                        const abono = safeFloat(selTicket.deposit);
-                        const resta = total - abono;
-                        let refText = null;
-                        if(r > 0) {
-                            if(isBs) refText = `Ref: $${formatUsd(resta / r)}`;
-                            else refText = `Ref: Bs.${formatBs(resta * r)}`;
-                        }
-
-                        return (
-                            <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4 overflow-y-auto">
-                                <div className="bg-white w-full max-w-sm rounded shadow-lg overflow-hidden">
-                                    <div id="receipt-content" className="p-6 bg-white text-black receipt-paper text-xs font-mono printable-area">
-                                        <div className="text-center border-b-2 border-dashed pb-3 mb-3">
-                                            {logo && <img src={logo} className="h-14 mx-auto mb-2 object-contain"/>}
-                                            <h2 className="text-xl font-black">CFREPAIR</h2>
-                                            <p>{selTicket.date} - #{safeId(selTicket.id).slice(-4)}</p>
-                                        </div>
-                                        <div className="space-y-1 mb-3">
-                                            <div className="flex justify-between"><span>Cliente:</span> <strong>{selTicket.customer}</strong></div>
-                                            <div className="flex justify-between"><span>Equipo:</span> <strong>{selTicket.phone}</strong></div>
-                                            <div className="pt-1 border-t border-dotted mt-1"><span>Falla:</span> <p>{selTicket.desc}</p></div>
-                                        </div>
-                                        <div className="border-y-2 border-dashed py-2 my-2 space-y-1">
-                                            <div className="flex justify-between"><span>Total:</span> <strong>{symbol} {isBs?formatBs(total):formatUsd(total)}</strong></div>
-                                            <div className="flex justify-between"><span>Abono:</span> <span>{symbol} {isBs?formatBs(abono):formatUsd(abono)}</span></div>
-                                            <div className="flex justify-between text-base font-black mt-1 border-t pt-1"><span>RESTA:</span> <span>{symbol} {isBs?formatBs(resta):formatUsd(resta)}</span></div>
-                                            {refText && <div className="text-right text-[10px] font-bold text-gray-600">{refText}</div>}
-                                        </div>
-                                        <p className="text-[9px] text-justify text-gray-500 mt-2 whitespace-pre-wrap">{terms}</p>
-                                    </div>
-                                    <div className="bg-gray-100 p-3 flex flex-col gap-2 no-print">
-                                        <button onClick={handleGenerateImage} disabled={isGenerating} className="w-full py-3 bg-purple-600 text-white rounded font-bold flex justify-center items-center gap-2"><Icon name="image" size={18}/> {isGenerating ? 'Generando...' : 'Generar Imagen'}</button>
-                                        <button onClick={()=>openWA(selTicket, true)} className="w-full py-3 bg-green-600 text-white rounded font-bold flex justify-center items-center gap-2"><Icon name="share-2" size={18}/> WhatsApp</button>
-                                        <button onClick={()=>setShowReceipt(false)} className="w-full py-3 bg-gray-300 text-gray-800 rounded font-bold">Cerrar</button>
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })()}
-
-                    {/* MODAL DETALLES */}
-                    {showModal && selTicket && !showReceipt && (
-                         <div className="fixed inset-0 z-40 bg-black/50 flex items-center justify-center p-4 animate-fade-in">
-                             <div className="bg-white rounded-xl w-full max-w-md p-5 space-y-4 shadow-2xl">
-                                <div className="flex justify-between items-center border-b pb-2"><h3 className="font-bold text-lg">#{safeId(selTicket.id).slice(-5)}</h3><button onClick={()=>setShowModal(false)}><Icon name="x"/></button></div>
-                                <div><p className="text-xs font-bold text-gray-500">CLIENTE</p><p className="text-lg">{selTicket.customer}</p></div>
-                                <div><p className="text-xs font-bold text-gray-500">EQUIPO</p><p className="font-bold">{selTicket.phone}</p><p className="text-sm italic text-gray-600">{selTicket.desc}</p></div>
-                                {selTicket.images?.length > 0 && (<div><p className="text-xs font-bold text-gray-500 mb-2">EVIDENCIA</p><div className="flex gap-2 overflow-x-auto pb-2">{selTicket.images.map((img,i)=><img key={i} src={img} className="w-20 h-20 rounded border object-cover"/>)}</div></div>)}
-                                <div className="grid grid-cols-3 gap-2 mt-4">{['En Reparación', 'Listo', 'Entregado'].map(s => (<button key={s} onClick={()=>{ updateStatus(selTicket.id, s); }} className={`text-[10px] py-2 rounded border font-bold transition-colors ${selTicket.status===s?'bg-blue-600 text-white border-blue-600':'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}>{s}</button>))}</div>
-                                <div className="flex gap-2 border-t pt-4">
-                                    <button onClick={()=>{deleteTicket(selTicket.id)}} className="p-3 border rounded-lg text-red-500 hover:bg-red-50"><Icon name="trash-2"/></button>
-                                    <button onClick={()=>{setShowModal(false); setShowReceipt(true)}} className="flex-1 bg-gray-900 text-white rounded-lg font-bold flex items-center justify-center gap-2"><Icon name="printer" size={18}/> Ver Recibo</button>
-                                </div>
-                             </div>
-                         </div>
-                    )}
-
-                    {generatedReceiptImage && React.createElement(ImagePreviewModal, {
-                        imageUrl: generatedReceiptImage,
-                        onClose: () => setGeneratedReceiptImage(null),
-                        fileName: `Recibo_${safeId(selTicket.id).slice(-4)}.png`
-                    })}
-
-                    {/* BOTTOM NAV */}
-                    <div className="fixed bottom-0 w-full bg-white border-t flex justify-around p-2 z-40 pb-4 shadow-lg">
-                        {[{id:'dashboard',l:'Panel',i:'clipboard-list'}, {id:'create',l:'Ingreso',i:'plus-circle'}, {id:'list',l:'Lista',i:'smartphone'}, {id:'inventory',l:'Inv.',i:'box'}, {id:'settings',l:'Ajustes',i:'settings'}].map(b => (
-                            <button key={b.id} onClick={()=>setTab(b.id)} className={`flex flex-col items-center p-1 transition-colors ${tab===b.id?'text-blue-600':'text-gray-400'}`}>
-                                <Icon name={b.i} size={24}/>
-                                <span className="text-[10px] font-bold mt-1">{b.l}</span>
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            );
-        }
-
-        const root = createRoot(document.getElementById('root'));
-        root.render(React.createElement(App));
-    </script>
-</body>
-</html>
+[  ] <!DOCTYPE html>
+[  ] <html lang="es">
+[  ] <head>
+[  ]     <meta charset="UTF-8">
+[  ]     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+[  ]     <title>CFREPAIR - Gestión Profesional</title>
+[  ]     <style>
+[  ]         :root {
+[  ]             --primary-color: #2563eb;
+[  ]             --success-color: #10b981;
+[  ]             --bg-color: #f3f4f6;
+[  ]             --card-bg: #ffffff;
+[  ]             --text-color: #1f2937;
+[  ]         }
+[  ] 
+[  ]         body {
+[  ]             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+[  ]             background-color: var(--bg-color);
+[  ]             color: var(--text-color);
+[  ]             margin: 0;
+[  ]             padding: 20px;
+[  ]         }
+[  ] 
+[  ]         .container { max-width: 900px; margin: 0 auto; }
+[  ]         h1 { text-align: center; color: var(--primary-color); text-transform: uppercase; letter-spacing: 2px; }
+[  ] 
+[  ]         /* Inputs y Botones */
+[  ]         input, select, textarea {
+[  ]             width: 100%; padding: 12px; border: 1px solid #ccc;
+[  ]             border-radius: 8px; box-sizing: border-box; margin-bottom: 12px;
+[  ]             font-size: 1em;
+[  ]         }
+[  ] 
+[  ]         .btn {
+[  ]             border: none; padding: 12px; border-radius: 8px;
+[  ]             cursor: pointer; font-weight: bold; color: white; transition: 0.2s;
+[  ]             width: 100%; font-size: 1em;
+[  ]         }
+[  ]         .btn-primary { background-color: var(--primary-color); }
+[  ]         .btn-primary:hover { background-color: #1d4ed8; }
+[  ]         
+[  ]         /* Botones de acción pequeños */
+[  ]         .btn-sm { width: auto; padding: 6px 12px; font-size: 0.85em; margin-left: 5px; }
+[  ]         .btn-danger { background-color: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer;}
+[  ]         .btn-move { background-color: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer;}
+[  ]         .btn-success { background-color: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer;}
+[  ] 
+[  ]         /* Tarjeta Principal */
+[  ]         .card {
+[  ]             background-color: var(--card-bg); padding: 25px;
+[  ]             border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+[  ]             margin-bottom: 25px; border-top: 5px solid var(--primary-color);
+[  ]         }
+[  ]         
+[  ]         .form-row { display: flex; gap: 15px; flex-wrap: wrap; }
+[  ]         .form-col { flex: 1; min-width: 200px; }
+[  ]         label { display: block; margin-bottom: 6px; font-weight: bold; color: #374151; }
+[  ] 
+[  ]         /* Pestañas */
+[  ]         .tabs-container {
+[  ]             display: flex; overflow-x: auto; gap: 10px; margin-bottom: 20px; padding-bottom: 5px;
+[  ]         }
+[  ]         .tab-btn {
+[  ]             background: #e5e7eb; border: none; padding: 10px 20px;
+[  ]             border-radius: 20px; cursor: pointer; white-space: nowrap;
+[  ]             font-weight: bold; color: #6b7280; flex: 1;
+[  ]         }
+[  ]         .tab-btn.active {
+[  ]             background-color: var(--primary-color); color: white;
+[  ]             box-shadow: 0 4px 6px rgba(37, 99, 235, 0.3);
+[  ]         }
+[  ] 
+[  ]         /* Lista */
+[  ]         .order-item {
+[  ]             background: var(--card-bg); padding: 15px; margin-bottom: 12px;
+[  ]             border-radius: 8px; display: flex; flex-direction: column;
+[  ]             box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-left: 4px solid #ccc;
+[  ]         }
+[  ]         .order-item.status-recibido { border-left-color: #6b7280; }
+[  ]         .order-item.status-reparacion { border-left-color: #3b82f6; }
+[  ]         .order-item.status-listo { border-left-color: #10b981; }
+[  ]         .order-item.status-entregado { border-left-color: #1f2937; }
+[  ] 
+[  ]         @media(min-width: 600px) {
+[  ]             .order-item { flex-direction: row; justify-content: space-between; align-items: center; }
+[  ]         }
+[  ]     </style>
+[  ] </head>
+[  ] <body>
+[  ] 
+[  ] <div class="container">
+[  ]     <h1>📱 CFREPAIR</h1>
+[  ]     
+[  ]     <div class="card">
+[  ]         <h2>🛠️ Nuevo Ingreso</h2>
+[  ]         <form id="repairForm">
+[  ]             <div class="form-row">
+[  ]                 <div class="form-col">
+[  ]                     <label>Cliente</label>
+[  ]                     <input type="text" id="clientName" placeholder="Nombre del cliente" required>
+[  ]                 </div>
+[  ]             </div>
+[  ] 
+[  ]             <div class="form-row">
+[  ]                 <div class="form-col">
+[  ]                     <label>Marca</label>
+[  ]                     <select id="deviceBrand" onchange="updateModels()" required>
+[  ]                         <option value="">Selecciona Marca...</option>
+[  ]                         <option value="Samsung">Samsung</option>
+[  ]                         <option value="Apple">Apple (iPhone)</option>
+[  ]                         <option value="Xiaomi">Xiaomi / Redmi / Poco</option>
+[  ]                         <option value="Motorola">Motorola</option>
+[  ]                         <option value="Huawei">Huawei / Honor</option>
+[  ]                         <option value="Tecno">Tecno</option>
+[  ]                         <option value="Infinix">Infinix</option>
+[  ]                         <option value="ZTE">ZTE</option>
+[  ]                         <option value="Vivo">Vivo</option>
+[  ]                         <option value="Alcatel">Alcatel</option>
+[  ]                         <option value="Otro">Otro</option>
+[  ]                     </select>
+[  ]                 </div>
+[  ] 
+[  ]                 <div class="form-col">
+[  ]                     <label>Modelo (Escribe o Selecciona)</label>
+[  ]                     <input list="modelsList" id="deviceModel" placeholder="Ej: A32, Note 10..." required>
+[  ]                     <datalist id="modelsList">
+[  ]                         </datalist>
+[  ]                 </div>
+[  ]             </div>
+[  ] 
+[  ]             <div class="form-col">
+[  ]                 <label>Falla / Detalle</label>
+[  ]                 <textarea id="issue" rows="2" placeholder="Describe el problema..." required></textarea>
+[  ]             </div>
+[  ] 
+[  ]             <div class="form-row">
+[  ]                 <div class="form-col">
+[  ]                     <label>Costo ($)</label>
+[  ]                     <input type="number" id="cost" placeholder="0.00">
+[  ]                 </div>
+[  ]                 <div class="form-col">
+[  ]                     <label>Abono ($)</label>
+[  ]                     <input type="number" id="deposit" placeholder="0.00">
+[  ]                 </div>
+[  ]             </div>
+[  ] 
+[  ]             <button type="submit" class="btn btn-primary">Registrar Equipo</button>
+[  ]         </form>
+[  ]     </div>
+[  ] 
+[  ]     <div style="margin-bottom: 15px;">
+[  ]         <input type="text" id="searchInput" placeholder="🔍 Buscar equipo...">
+[  ]     </div>
+[  ] 
+[  ]     <div class="tabs-container">
+[  ]         <button class="tab-btn active" onclick="setTab('recibido')">📥 Recibido</button>
+[  ]         <button class="tab-btn" onclick="setTab('reparacion')">🔧 Taller</button>
+[  ]         <button class="tab-btn" onclick="setTab('listo')">✅ Listo</button>
+[  ]         <button class="tab-btn" onclick="setTab('entregado')">🏁 Entregado</button>
+[  ]     </div>
+[  ] 
+[  ]     <div id="ordersList"></div>
+[  ] </div>
+[  ] 
+[  ] <script>
+[  ]     /* ================= BASE DE DATOS DE MODELOS ================= */
+[  ]     const modelsDB = {
+[  ]         "Samsung": [
+[  ]             // Serie S
+[  ]             "S25 Ultra", "S25 Plus", "S25", "S24 Ultra", "S24 Plus", "S24", "S23 Ultra", "S23+", "S23", "S22 Ultra", "S22+", "S22", "S21 Ultra", "S21+", "S21", "S21 FE", "S20 Ultra", "S20+", "S20", "S20 FE", "S10+", "S10", "S10e", "S9+", "S9", "S8+", "S8",
+[  ]             // Serie A
+[  ]             "A55", "A54", "A53", "A52s", "A52", "A51", "A50", "A35", "A34", "A33", "A32 4G", "A32 5G", "A31", "A30s", "A30", "A25", "A24", "A23", "A22", "A21s", "A20s", "A20", "A15", "A14", "A13", "A12", "A11", "A10s", "A10", "A05s", "A05", "A04s", "A04", "A03s", "A03 Core", "A02s", "A02", "A01",
+[  ]             // Serie J
+[  ]             "J8", "J7 Prime", "J7 Pro", "J7 Neo", "J7 Metal", "J6+", "J6", "J5 Prime", "J5 Pro", "J5", "J4+", "J4", "J3", "J2 Prime", "J2 Core", "J1 Ace", "J1",
+[  ]             // Serie Note & Z
+[  ]             "Note 20 Ultra", "Note 20", "Note 10+", "Note 10", "Note 9", "Note 8", "Z Fold 6", "Z Flip 6", "Z Fold 5", "Z Flip 5", "Z Fold 4", "Z Flip 4"
+[  ]         ],
+[  ]         "Apple": [
+[  ]             "iPhone 17 Pro Max", "iPhone 17 Pro", "iPhone 17 Plus", "iPhone 17",
+[  ]             "iPhone 16 Pro Max", "iPhone 16 Pro", "iPhone 16 Plus", "iPhone 16",
+[  ]             "iPhone 15 Pro Max", "iPhone 15 Pro", "iPhone 15 Plus", "iPhone 15",
+[  ]             "iPhone 14 Pro Max", "iPhone 14 Pro", "iPhone 14 Plus", "iPhone 14",
+[  ]             "iPhone 13 Pro Max", "iPhone 13 Pro", "iPhone 13", "iPhone 13 Mini",
+[  ]             "iPhone 12 Pro Max", "iPhone 12 Pro", "iPhone 12", "iPhone 12 Mini",
+[  ]             "iPhone 11 Pro Max", "iPhone 11 Pro", "iPhone 11",
+[  ]             "iPhone XS Max", "iPhone XS", "iPhone XR", "iPhone X",
+[  ]             "iPhone 8 Plus", "iPhone 8", "iPhone 7 Plus", "iPhone 7",
+[  ]             "iPhone SE 2020", "iPhone SE 2022"
+[  ]         ],
+[  ]         "Xiaomi": [
+[  ]             // Redmi Note
+[  ]             "Redmi Note 13 Pro+", "Redmi Note 13 Pro", "Redmi Note 13", "Redmi Note 12 Pro+", "Redmi Note 12", "Redmi Note 11 Pro", "Redmi Note 11S", "Redmi Note 11", "Redmi Note 10 Pro", "Redmi Note 10S", "Redmi Note 10", "Redmi Note 9 Pro", "Redmi Note 9S", "Redmi Note 9", "Redmi Note 8 Pro", "Redmi Note 8",
+[  ]             // Redmi Number
+[  ]             "Redmi 13C", "Redmi 12", "Redmi 10C", "Redmi 10", "Redmi 9T", "Redmi 9C", "Redmi 9A", "Redmi 9", "Redmi 8", "Redmi 8A",
+[  ]             // Poco
+[  ]             "Poco X6 Pro", "Poco X6", "Poco X5 Pro", "Poco X5", "Poco X4 Pro", "Poco X3 Pro", "Poco X3 NFC", "Poco F5", "Poco F4", "Poco F3", "Poco M6 Pro", "Poco M5", "Poco M4 Pro", "Poco M3",
+[  ]             // Mi
+[  ]             "Xiaomi 14 Ultra", "Xiaomi 14", "Xiaomi 13T", "Xiaomi 13", "Xiaomi 12T", "Xiaomi 12", "Mi 11 Lite", "Mi 11", "Mi 10T"
+[  ]         ],
+[  ]         "Motorola": [
+[  ]             "Moto G84", "Moto G54", "Moto G24", "Moto G14", "Moto G13", "Moto G72", "Moto G60", "Moto G52", "Moto G42", "Moto G41", "Moto G32", "Moto G31", "Moto G22", "Moto G20", "Moto G10", "Moto G9 Plus", "Moto G9 Play", "Moto G8 Power", "Moto G8 Plus", "Moto G8 Play", "Moto G7 Power", "Moto G6",
+[  ]             "Moto E40", "Moto E32", "Moto E22", "Moto E20", "Moto E13", "Moto E7", "Moto E6s", "Edge 40", "Edge 30"
+[  ]         ],
+[  ]         "Huawei": [
+[  ]             "Pura 70", "P60 Pro", "P50 Pro", "P40 Pro", "P40 Lite", "P30 Pro", "P30 Lite", "P20 Pro", "P20 Lite",
+[  ]             "Mate 60", "Mate 50", "Mate 40", "Mate 20 Lite",
+[  ]             "Nova 12", "Nova 11", "Nova 10", "Nova 9", "Nova 8i", "Nova 7i", "Nova 5T",
+[  ]             "Y9a", "Y9s", "Y9 Prime", "Y9 2019", "Y8s", "Y7a", "Y7p", "Y6p", "Y6 2019", "Y5p"
+[  ]         ],
+[  ]         "Tecno": [
+[  ]             "Spark 20 Pro+", "Spark 20", "Spark 10 Pro", "Spark 10", "Spark 9 Pro", "Spark 8C", "Spark 7", "Spark 6 Go",
+[  ]             "Camon 30", "Camon 20 Premier", "Camon 20", "Camon 19 Pro", "Camon 18",
+[  ]             "Pova 6", "Pova 5 Pro", "Pova 5", "Pova 4", "Pova Neo", "Pop 8", "Pop 7", "Pop 6"
+[  ]         ],
+[  ]         "Infinix": [
+[  ]             "Note 40 Pro", "Note 40", "Note 30 Pro", "Note 30", "Note 12 G96", "Note 12", "Note 11 Pro", "Note 10 Pro", "Note 8", "Note 7",
+[  ]             "Hot 40 Pro", "Hot 40i", "Hot 30", "Hot 30i", "Hot 20", "Hot 12", "Hot 11s", "Hot 10s", "Hot 10", "Hot 9 Play",
+[  ]             "Smart 8", "Smart 7", "Smart 6", "Zero 30", "Zero X Pro"
+[  ]         ],
+[  ]         "ZTE": [
+[  ]             "Blade V50", "Blade V40", "Blade V30", "Blade A72", "Blade A71", "Blade A52", "Blade A51", "Blade A31", "Axon 50", "Axon 40"
+[  ]         ],
+[  ]         "Vivo": [
+[  ]             "V30", "V29", "V27", "V25", "Y36", "Y35", "Y27", "Y22s", "Y21s", "Y17s", "Y16", "Y02t", "X100"
+[  ]         ],
+[  ]         "Alcatel": [
+[  ]             "1S", "1B", "1SE", "3X", "3L", "1V", "1 (2021)"
+[  ]         ],
+[  ]         "Honor": [
+[  ]             "Magic 6 Pro", "Magic 5 Pro", "Honor 90", "Honor 90 Lite", "Honor 70", "Honor 50",
+[  ]             "X9b", "X9a", "X8b", "X8a", "X7b", "X7a", "X6a", "X6", "X5 Plus"
+[  ]         ]
+[  ]     };
+[  ] 
+[  ]     /* ================= LÓGICA DE LA APP ================= */
+[  ]     
+[  ]     // Función para actualizar la lista de modelos según la marca
+[  ]     function updateModels() {
+[  ]         const brand = document.getElementById('deviceBrand').value;
+[  ]         const datalist = document.getElementById('modelsList');
+[  ]         const inputModel = document.getElementById('deviceModel');
+[  ]         
+[  ]         datalist.innerHTML = ''; // Limpiar lista anterior
+[  ]         inputModel.value = '';   // Limpiar campo de texto
+[  ] 
+[  ]         if (modelsDB[brand]) {
+[  ]             modelsDB[brand].forEach(model => {
+[  ]                 const option = document.createElement('option');
+[  ]                 option.value = model;
+[  ]                 datalist.appendChild(option);
+[  ]             });
+[  ]         }
+[  ]     }
+[  ] 
+[  ]     // --- Variables y Funciones de Gestión (Igual que versión anterior) ---
+[  ]     let orders = JSON.parse(localStorage.getItem('cfrepair_v4_orders')) || [];
+[  ]     let currentTab = 'recibido';
+[  ] 
+[  ]     const form = document.getElementById('repairForm');
+[  ]     const listContainer = document.getElementById('ordersList');
+[  ]     const searchInput = document.getElementById('searchInput');
+[  ]     const tabs = document.querySelectorAll('.tab-btn');
+[  ] 
+[  ]     renderList();
+[  ] 
+[  ]     // 1. REGISTRAR ORDEN
+[  ]     form.addEventListener('submit', (e) => {
+[  ]         e.preventDefault();
+[  ]         
+[  ]         const newOrder = {
+[  ]             id: Date.now(),
+[  ]             client: document.getElementById('clientName').value,
+[  ]             brand: document.getElementById('deviceBrand').value,
+[  ]             model: document.getElementById('deviceModel').value,
+[  ]             issue: document.getElementById('issue').value,
+[  ]             cost: parseFloat(document.getElementById('cost').value) || 0,
+[  ]             deposit: parseFloat(document.getElementById('deposit').value) || 0,
+[  ]             date: new Date().toLocaleDateString(),
+[  ]             status: 'recibido'
+[  ]         };
+[  ] 
+[  ]         orders.unshift(newOrder);
+[  ]         saveData();
+[  ]         form.reset();
+[  ]         
+[  ]         if(currentTab !== 'recibido') setTab('recibido');
+[  ]         else renderList();
+[  ]     });
+[  ] 
+[  ]     // 2. CAMBIAR PESTAÑA
+[  ]     window.setTab = (tabName) => {
+[  ]         currentTab = tabName;
+[  ]         tabs.forEach(btn => btn.classList.remove('active'));
+[  ]         event.target.classList.add('active');
+[  ]         renderList();
+[  ]     }
+[  ] 
+[  ]     // 3. BUSCADOR
+[  ]     searchInput.addEventListener('input', renderList);
+[  ] 
+[  ]     // 4. RENDERIZAR
+[  ]     function renderList() {
+[  ]         listContainer.innerHTML = '';
+[  ]         const searchTerm = searchInput.value.toLowerCase();
+[  ] 
+[  ]         const filteredOrders = orders.filter(order => {
+[  ]             const matchesTab = order.status === currentTab;
+[  ]             const matchesSearch = 
+[  ]                 order.client.toLowerCase().includes(searchTerm) || 
+[  ]                 order.model.toLowerCase().includes(searchTerm) ||
+[  ]                 order.brand.toLowerCase().includes(searchTerm);
+[  ]             return matchesTab && matchesSearch;
+[  ]         });
+[  ] 
+[  ]         if (filteredOrders.length === 0) {
+[  ]             listContainer.innerHTML = `<p style="text-align:center; color:#888;">No hay equipos aquí.</p>`;
+[  ]             return;
+[  ]         }
+[  ] 
+[  ]         filteredOrders.forEach(order => {
+[  ]             const saldo = (order.cost - order.deposit).toFixed(2);
+[  ]             let btns = '';
+[  ] 
+[  ]             if(currentTab === 'recibido') {
+[  ]                 btns = `<button class="btn-sm btn-move" onclick="changeStatus(${order.id}, 'reparacion')">Reparar ➡️</button>`;
+[  ]             } else if (currentTab === 'reparacion') {
+[  ]                 btns = `<button class="btn-sm btn-success" onclick="changeStatus(${order.id}, 'listo')">Listo ✅</button>`;
+[  ]             } else if (currentTab === 'listo') {
+[  ]                 btns = `<button class="btn-sm btn-move" onclick="changeStatus(${order.id}, 'entregado')">Entregar 👋</button>`;
+[  ]             } else {
+[  ]                 btns = `<button class="btn-sm btn-danger" onclick="deleteOrder(${order.id})">🗑️</button>`;
+[  ]             }
+[  ] 
+[  ]             // Botón de eliminar siempre disponible pero pequeño en otras etapas
+[  ]             if(currentTab !== 'entregado') {
+[  ]                  btns += `<button class="btn-sm btn-danger" onclick="deleteOrder(${order.id})" title="Borrar">x</button>`;
+[  ]             }
+[  ] 
+[  ]             const div = document.createElement('div');
+[  ]             div.className = `order-item status-${order.status}`;
+[  ]             div.innerHTML = `
+[  ]                 <div style="flex:1;">
+[  ]                     <h3 style="margin:0 0 5px 0;">${order.client}</h3>
+[  ]                     <div style="font-weight:bold; color:#2563eb;">${order.brand} - ${order.model}</div>
+[  ]                     <div style="font-size:0.9em; color:#555;">${order.issue}</div>
+[  ]                     <div style="font-size:0.85em; margin-top:5px;">
+[  ]                         Cobro: <b>$${order.cost}</b> | Resta: <b style="color:${saldo > 0 ? '#ef4444':'#10b981'}">$${saldo}</b>
+[  ]                     </div>
+[  ]                 </div>
+[  ]                 <div style="margin-top:10px; display:flex; justify-content:flex-end;">
+[  ]                     ${btns}
+[  ]                 </div>
+[  ]             `;
+[  ]             listContainer.appendChild(div);
+[  ]         });
+[  ]     }
+[  ] 
+[  ]     // 5. FUNCIONES DE ACCIÓN
+[  ]     window.changeStatus = (id, newStatus) => {
+[  ]         const idx = orders.findIndex(o => o.id === id);
+[  ]         if(idx !== -1) {
+[  ]             orders[idx].status = newStatus;
+[  ]             saveData();
+[  ]             renderList();
+[  ]         }
+[  ]     }
+[  ] 
+[  ]     window.deleteOrder = (id) => {
+[  ]         if(confirm('¿Eliminar registro?')) {
+[  ]             orders = orders.filter(o => o.id !== id);
+[  ]             saveData();
+[  ]             renderList();
+[  ]         }
+[  ]     }
+[  ] 
+[  ]     function saveData() {
+[  ]         localStorage.setItem('cfrepair_v4_orders', JSON.stringify(orders));
+[  ]     }
+[  ] </script>
+[  ] 
+[  ] </body>
+[  ] </html>
+[  ]
