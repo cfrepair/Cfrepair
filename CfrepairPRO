@@ -1,0 +1,313 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  Smartphone, Wrench, Truck, CheckCircle, ChevronRight, Home, User, 
+  ArrowLeft, Package, LogOut, MessageCircle, CheckSquare, XCircle, 
+  AlertTriangle, Plus, LayoutDashboard, Activity, Check,
+  BarChart3, PieChart, TrendingUp, AlertOctagon, Box, DollarSign, Users,
+  Loader2, Camera, Edit3, Image as ImageIcon, Search, Save, ShieldCheck, FileText, Info,
+  AlertCircle, ShoppingBag, Tag, RefreshCw, Zap
+} from 'lucide-react';
+
+// --- 🔧 CONFIGURACIÓN RÁPIDA ---
+// Pega aquí el link de tu logo (ImgBB, etc) o usa este placeholder
+const LOGO_URL = "https://placehold.co/400x400/0f172a/22d3ee?text=CFREPAIR";
+
+// --- IMPORTANTE: FIREBASE ---
+import { initializeApp } from 'firebase/app';
+import { 
+  getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, 
+  query, serverTimestamp 
+} from 'firebase/firestore';
+import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+
+// Pega aquí tus llaves de Firebase cuando las tengas. Mientras esté vacío, usará modo Simulación.
+const firebaseConfig = {
+  // apiKey: "TU_API_KEY",
+  // authDomain: "...",
+  // projectId: "...",
+};
+
+// --- INICIALIZACIÓN SEGURA ---
+const app = Object.keys(firebaseConfig).length > 0 ? initializeApp(firebaseConfig) : null;
+const auth = app ? getAuth(app) : null;
+const db = app ? getFirestore(app) : null;
+const appId = 'cfrepair-mobile-v1';
+
+// --- BASES DE DATOS ---
+const DEVICE_DB = {
+  'Samsung': {
+    'Serie S': ['Galaxy S24 Ultra', 'Galaxy S23', 'Galaxy S22 Ultra', 'Galaxy S21 FE'],
+    'Serie A': ['Galaxy A55', 'Galaxy A54', 'Galaxy A35', 'Galaxy A15', 'Galaxy A05s'],
+    'Serie J': ['Galaxy J7 Prime', 'Galaxy J5 Prime']
+  },
+  'Apple': {
+    'iPhone 15/14': ['iPhone 15 Pro Max', 'iPhone 15', 'iPhone 14 Pro'],
+    'iPhone 13/12': ['iPhone 13 Pro Max', 'iPhone 13', 'iPhone 12'],
+    'iPhone 11/X': ['iPhone 11', 'iPhone XR', 'iPhone X'],
+  },
+  'Xiaomi': {
+    'Redmi': ['Note 13 Pro', 'Note 12', 'Note 11'],
+    'POCO': ['X6 Pro', 'F5', 'X3 Pro'],
+  }
+};
+
+const MARKETPLACE_ITEMS = [
+  { id: 1, type: 'phone', model: 'iPhone 12 Pro Max', price: 650, condition: 'Grado A', badge: 'Batería 100%', img: '📱' },
+  { id: 2, type: 'phone', model: 'Samsung S21 FE', price: 320, condition: 'Grado B', badge: 'Oferta', img: '📲' },
+  { id: 3, type: 'acc', model: 'Vidrio 9D Premium', price: 5, condition: 'Nuevo', badge: 'Blindaje', img: '🛡️' },
+];
+
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [appMode, setAppMode] = useState('auth'); 
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // --- MOTOR HÍBRIDO (NUBE O LOCAL) ---
+  useEffect(() => {
+    if (auth && db) {
+      signInAnonymously(auth).catch((e) => console.error(e));
+      onAuthStateChanged(auth, (u) => setUser(u));
+      const unsub = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'orders_prod'), (snap) => {
+        setOrders(snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => b.createdAt - a.createdAt));
+        setLoading(false);
+      });
+      return () => unsub();
+    } else {
+      // Modo Simulación para StackBlitz
+      setTimeout(() => {
+        const local = localStorage.getItem('cfrepair_backup');
+        if(local) setOrders(JSON.parse(local));
+        setLoading(false);
+      }, 3000); 
+    }
+  }, []);
+
+  useEffect(() => { if(!loading && !db) localStorage.setItem('cfrepair_backup', JSON.stringify(orders)); }, [orders, loading]);
+
+  // --- ACCIONES ---
+  const createOrder = async (data) => {
+    const newO = { ...data, id: `CF-${Math.floor(Math.random()*10000)}`, createdAt: Date.now(), status: data.status || 'received', diagnosis: data.diagnosis || [] };
+    if (db) await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders_prod'), newO);
+    else setOrders(prev => [newO, ...prev]);
+  };
+
+  const updateOrderData = async (id, ups) => {
+    if (db) alert("Modo Demo: Actualización simulada en Firebase (Requiere Auth real para escritura)"); 
+    else setOrders(prev => prev.map(o => o.id === id ? { ...o, ...ups } : o));
+  };
+
+  const clearData = () => { if(confirm("¿Borrar datos locales?")) { localStorage.removeItem('cfrepair_backup'); setOrders([]); } }
+
+  // --- PANTALLA DE CARGA (LOGO NEON + BATERÍA) ---
+  if (loading) return (
+    <div className="h-screen flex items-center justify-center bg-slate-950 flex-col gap-10 relative overflow-hidden">
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-purple-900/10 rounded-full blur-[120px]"></div>
+
+      {/* --- TU LOGO --- */}
+      <div className="relative z-10 flex flex-col items-center">
+        <div className="absolute inset-0 bg-gradient-to-tr from-cyan-500 via-purple-500 to-fuchsia-500 blur-3xl opacity-30 rounded-full transform scale-125 animate-pulse"></div>
+        <img src={LOGO_URL} alt="CFREPAIR Logo" className="w-56 h-56 object-contain relative z-10 drop-shadow-[0_0_15px_rgba(255,255,255,0.1)] animate-fade-in"/>
+      </div>
+
+      {/* --- BATERÍA NEON --- */}
+      <div className="relative z-10 flex flex-col items-center gap-4">
+        <div className="relative">
+          <div className="w-48 h-20 border-[4px] border-cyan-400 rounded-2xl p-2 flex items-center justify-start shadow-[0_0_30px_rgba(34,211,238,0.2)] bg-slate-900/80 backdrop-blur-md">
+             <div className="h-full bg-gradient-to-r from-cyan-400 via-purple-500 to-fuchsia-500 rounded-lg animate-battery-charge shadow-[0_0_25px_rgba(168,85,247,0.4)]"></div>
+          </div>
+          <div className="absolute -right-6 top-1/2 -translate-y-1/2 w-4 h-10 bg-cyan-400 rounded-r-lg shadow-[0_0_15px_rgba(34,211,238,0.3)]"></div>
+        </div>
+        <p className="text-cyan-300 font-mono font-bold text-xs animate-pulse tracking-[0.4em] uppercase drop-shadow-[0_0_5px_cyan]">Cargando Sistema...</p>
+      </div>
+      <style>{`@keyframes battery-charge { 0% { width: 5%; opacity: 0.5; } 20% { width: 20%; } 50% { width: 50%; } 80% { width: 80%; } 100% { width: 100%; opacity: 1; } } .animate-battery-charge { animation: battery-charge 2.5s infinite linear; } .animate-fade-in { animation: fadeIn 1.5s ease-out; } @keyframes fadeIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }`}</style>
+    </div>
+  );
+
+  // --- ROUTING ---
+  if (appMode === 'auth') return <AuthScreen onLogin={setAppMode} onClear={clearData}/>;
+  if (appMode === 'client') return <ClientApp orders={orders} onCreateOrder={createOrder} updateOrderData={updateOrderData} onLogout={() => setAppMode('auth')} />;
+  if (appMode === 'tech') return <TechApp orders={orders} updateOrder={updateOrderData} onLogout={() => setAppMode('auth')} />;
+  
+  return null;
+}
+
+// 🔐 LOGIN NEON
+const AuthScreen = ({ onLogin, onClear }) => (
+  <div className="min-h-screen bg-slate-950 flex flex-col justify-center p-8 relative overflow-hidden">
+    <div className="absolute top-0 right-0 w-80 h-80 bg-purple-600/10 rounded-full blur-[100px]"></div>
+    <div className="absolute bottom-0 left-0 w-80 h-80 bg-cyan-500/10 rounded-full blur-[100px]"></div>
+    <div className="relative z-10 space-y-8">
+      <div className="text-center">
+        <div className="inline-block mb-6 transform -rotate-3">
+           <img src={LOGO_URL} className="w-32 h-32 object-contain drop-shadow-[0_0_20px_rgba(34,211,238,0.4)]" />
+        </div>
+        <h1 className="text-4xl font-black text-white tracking-tighter mb-2">CF<span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-fuchsia-500">REPAIR</span></h1>
+        <p className="text-slate-500 text-[10px] uppercase tracking-[0.4em] font-bold">Enterprise System</p>
+      </div>
+      <div className="space-y-4 pt-4">
+        <button onClick={() => onLogin('client')} className="w-full bg-gradient-to-r from-cyan-600 to-blue-600 text-white p-4 rounded-xl font-bold shadow-[0_0_25px_rgba(8,145,178,0.4)] hover:scale-[1.02] transition-all flex items-center justify-center gap-3 border border-cyan-400/20"><User size={20}/> <span>Portal Clientes</span></button>
+        <div className="flex items-center gap-4 py-2 opacity-50"><div className="h-px bg-slate-800 flex-1"></div><span className="text-[10px] text-slate-500 font-bold tracking-widest">PERSONAL</span><div className="h-px bg-slate-800 flex-1"></div></div>
+        <button onClick={() => onLogin('tech')} className="w-full bg-slate-900 border border-slate-800 text-slate-300 p-4 rounded-xl font-bold flex items-center justify-center gap-3 hover:border-purple-500/50 hover:text-purple-400 transition shadow-lg"><Wrench size={20}/> Mesa Técnica</button>
+        <button onClick={onClear} className="w-full text-xs text-red-900/40 hover:text-red-500 mt-6 flex items-center justify-center gap-2"><LogOut size={12}/> Resetear Datos Locales</button>
+      </div>
+    </div>
+  </div>
+);
+
+// 📱 CLIENTE
+const ClientApp = ({ orders, onCreateOrder, updateOrderData, onLogout }) => {
+  const [activeTab, setActiveTab] = useState('home');
+  const [wizardStep, setWizardStep] = useState('brand');
+  const [formData, setFormData] = useState({});
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [marketTab, setMarketTab] = useState('buy');
+  const myOrders = orders.filter(o => o.client?.includes('Carlos')); 
+
+  const handlePhotoUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setPreviewUrl(URL.createObjectURL(file));
+      setFormData({ ...formData, photo: true, model: 'Por Identificar', brand: 'Desconocida' });
+    }
+  };
+
+  const submitOrder = () => {
+    if (!termsAccepted) return;
+    onCreateOrder({
+      client: 'Carlos (Cliente)', device: formData.model, brand: formData.brand, issueLabel: formData.issue,
+      photoUrl: previewUrl, price: 0, diagnosis: [ { component: 'Pantalla', status: 'pending' }, { component: 'Batería', status: 'pending' } ]
+    });
+    setWizardStep('brand'); setFormData({}); setPreviewUrl(null); setTermsAccepted(false); setActiveTab('repairs');
+  };
+
+  const submitSellRequest = () => {
+    onCreateOrder({ client: 'Carlos (Cliente)', device: formData.model || 'Equipo Usado', brand: 'Venta', issueLabel: 'Solicitud Venta', photoUrl: previewUrl, status: 'sell_request', price: 0 });
+    alert("Oferta enviada"); setActiveTab('repairs');
+  };
+
+  const acceptRisk = (orderId) => updateOrderData(orderId, { status: 'risk_accepted' });
+
+  const HomeView = () => (
+    <div className="px-5 animate-in fade-in">
+      <div className="bg-slate-900 p-6 rounded-2xl shadow-lg border border-slate-800 mb-6 text-center relative overflow-hidden group">
+        <div className="absolute inset-0 bg-gradient-to-r from-fuchsia-600/10 to-purple-600/10 opacity-0 group-hover:opacity-100 transition duration-500"></div>
+        <button onClick={() => { setActiveTab('repairs'); setWizardStep('brand'); }} className="w-full bg-gradient-to-r from-fuchsia-600 to-purple-600 text-white py-4 rounded-xl font-bold shadow-[0_0_20px_rgba(192,38,211,0.4)] relative z-10 flex justify-center gap-2"><Plus size={20}/> Nueva Reparación</button>
+      </div>
+      <div className="grid grid-cols-2 gap-4 mb-6">
+        <div onClick={() => { setActiveTab('market'); setMarketTab('buy'); }} className="bg-slate-900 p-4 rounded-2xl border border-slate-800 flex flex-col items-center gap-2 cursor-pointer hover:border-cyan-500/50 transition"><div className="bg-cyan-500/10 p-3 rounded-full text-cyan-400"><ShoppingBag size={24}/></div><span className="font-bold text-white text-sm">Comprar</span></div>
+        <div onClick={() => { setActiveTab('market'); setMarketTab('sell'); }} className="bg-slate-900 p-4 rounded-2xl border border-slate-800 flex flex-col items-center gap-2 cursor-pointer hover:border-green-500/50 transition"><div className="bg-green-500/10 p-3 rounded-full text-green-400"><DollarSign size={24}/></div><span className="font-bold text-white text-sm">Vender</span></div>
+      </div>
+      <h3 className="font-bold text-white mb-3 flex items-center gap-2"><Activity size={18} className="text-cyan-400"/> Recientes</h3>
+      <div className="space-y-3">
+          {myOrders.slice(0,2).map(order => (
+            <div key={order.id} className="bg-slate-900 p-4 rounded-xl border border-slate-800 shadow-md">
+              <div className="flex justify-between mb-2"><span className="font-bold text-slate-200">{order.device}</span><StatusBadge status={order.status}/></div>
+              <p className="text-xs text-slate-400">{order.issueLabel}</p>
+            </div>
+          ))}
+      </div>
+    </div>
+  );
+
+  const MarketplaceView = () => (
+    <div className="px-5 animate-in fade-in pb-24">
+      <div className="flex bg-slate-900 p-1 rounded-xl mb-6 border border-slate-800">
+        <button onClick={() => setMarketTab('buy')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition ${marketTab === 'buy' ? 'bg-slate-800 text-white shadow' : 'text-slate-500'}`}>Tienda</button>
+        <button onClick={() => setMarketTab('sell')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition ${marketTab === 'sell' ? 'bg-slate-800 text-green-400 shadow' : 'text-slate-500'}`}>Vender</button>
+      </div>
+      {marketTab === 'buy' ? (
+        <div className="grid grid-cols-2 gap-4">
+          {MARKETPLACE_ITEMS.map(item => (
+            <div key={item.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-3 flex flex-col relative group hover:border-cyan-500/30 transition">
+               <div className="text-4xl text-center py-4 transform group-hover:scale-110 transition">{item.img}</div>
+               <div className="mt-auto"><h4 className="font-bold text-white text-sm mb-1">{item.model}</h4><div className="flex justify-between items-center"><span className="text-cyan-400 font-bold">${item.price}</span><button className="bg-slate-800 p-1.5 rounded-lg text-white hover:bg-cyan-600 transition"><Plus size={16}/></button></div></div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl text-center">
+            <RefreshCw size={48} className="mx-auto text-green-400 mb-3"/>
+            <h3 className="text-xl font-bold text-white">¡Te lo compramos!</h3>
+            <div className="border-2 border-dashed border-slate-700 rounded-xl p-6 mb-4 relative bg-slate-800/50 mt-4">
+               {previewUrl ? <img src={previewUrl} className="h-32 mx-auto rounded object-cover"/> : <><Camera className="mx-auto text-slate-600 mb-2"/><p className="text-xs text-slate-500">Subir foto</p><input type="file" accept="image/*" onChange={handlePhotoUpload} className="absolute inset-0 opacity-0"/></>}
+            </div>
+            <input type="text" placeholder="Modelo" className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-xl mb-3 text-sm outline-none focus:border-green-500" onChange={e => setFormData({...formData, model: e.target.value})}/>
+            <button onClick={submitSellRequest} className="w-full bg-green-600 text-white font-bold py-3 rounded-xl shadow-lg">Enviar Oferta</button>
+        </div>
+      )}
+    </div>
+  );
+
+  const RepairWizard = () => {
+    if (wizardStep === 'warranty') return (
+      <div className="px-5 animate-in slide-in-from-right pb-10">
+         <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5 space-y-5 shadow-lg relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-500 to-fuchsia-500"></div>
+            <h3 className="text-xl font-bold text-white text-center flex justify-center items-center gap-2"><ShieldCheck className="text-cyan-400"/> Garantía</h3>
+            <div><h4 className="text-sm font-bold text-cyan-400 mb-1 flex gap-2"><CheckSquare size={14}/> SÍ: Falla Táctil</h4><p className="text-xs text-slate-400 pl-6">Ghost touch o sin respuesta (7-15 días).</p></div>
+            <div><h4 className="text-sm font-bold text-fuchsia-500 mb-1 flex gap-2"><XCircle size={14}/> NO: Imagen/Display</h4><p className="text-xs text-slate-400 pl-6">Manchas, rayas o pixelado anulan garantía.</p></div>
+            <div onClick={() => setTermsAccepted(!termsAccepted)} className={`p-3 rounded-xl border flex gap-3 cursor-pointer ${termsAccepted ? 'bg-cyan-900/20 border-cyan-500' : 'bg-slate-950 border-slate-700'}`}>
+               <div className={`w-5 h-5 border rounded flex items-center justify-center ${termsAccepted ? 'bg-cyan-500 border-cyan-500' : 'border-slate-500'}`}>{termsAccepted && <Check size={12} className="text-white"/>}</div>
+               <p className="text-xs text-slate-300">Acepto los términos.</p>
+            </div>
+            <button onClick={submitOrder} disabled={!termsAccepted} className={`w-full py-3 rounded-xl font-bold ${termsAccepted ? 'bg-cyan-600 text-white shadow-[0_0_15px_rgba(8,145,178,0.4)]' : 'bg-slate-800 text-slate-500'}`}>Enviar Solicitud</button>
+         </div>
+      </div>
+    );
+    return (
+      <div className="px-5 animate-in slide-in-from-right">
+        <h3 className="text-lg font-bold text-white mb-4">Nueva Reparación</h3>
+        {wizardStep === 'brand' && <div className="grid grid-cols-2 gap-3">{Object.keys(DEVICE_DB).map(b => <button key={b} onClick={() => {setFormData({...formData, brand: b}); setWizardStep('warranty')}} className="bg-slate-900 p-4 rounded-xl border border-slate-800 text-slate-300 hover:border-cyan-500 hover:text-cyan-400 transition">{b}</button>)}</div>}
+      </div>
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 pb-20">
+      <div className="bg-slate-900 p-5 text-white pt-10 rounded-b-3xl shadow-2xl mb-6 flex justify-between items-center sticky top-0 z-20 border-b border-slate-800">
+        <div><p className="text-slate-400 text-xs">Hola,</p><h2 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">Carlos</h2></div>
+        <button onClick={onLogout} className="bg-slate-800 p-2 rounded-full hover:text-red-400 transition"><LogOut size={18}/></button>
+      </div>
+      {activeTab === 'home' && <HomeView />}
+      {activeTab === 'market' && <MarketplaceView />}
+      {activeTab === 'repairs' && (wizardStep === 'brand' ? <div className="px-5"><h3 className="font-bold text-white mb-4">Mis Reparaciones</h3><div className="space-y-3">{myOrders.map(o => (<div key={o.id} className="bg-slate-900 p-4 rounded-xl border border-slate-800 shadow-md"><div className="flex justify-between mb-2"><span className="font-bold text-slate-200">{o.device}</span><StatusBadge status={o.status}/></div><p className="text-xs text-slate-400 mb-3">{o.issueLabel}</p>{o.status === 'risk_pending' && <button onClick={() => acceptRisk(o.id)} className="w-full bg-red-600/20 border border-red-500 text-red-400 text-xs font-bold py-2 rounded">Aceptar Riesgo Sin Garantía</button>}</div>))}</div></div> : <RepairWizard />)}
+      
+      <div className="fixed bottom-0 w-full bg-slate-900 border-t border-slate-800 p-2 flex justify-around z-30">
+        <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center p-2 rounded-xl ${activeTab === 'home' ? 'text-cyan-400' : 'text-slate-500'}`}><Home size={20}/><span className="text-[10px]">Inicio</span></button>
+        <button onClick={() => setActiveTab('market')} className={`flex flex-col items-center p-2 rounded-xl ${activeTab === 'market' ? 'text-cyan-400' : 'text-slate-500'}`}><ShoppingBag size={20}/><span className="text-[10px]">Tienda</span></button>
+        <div className="relative -top-5"><button onClick={() => { setActiveTab('repairs'); setWizardStep('brand'); }} className="bg-gradient-to-r from-cyan-500 to-blue-600 p-4 rounded-full text-white shadow-[0_0_20px_rgba(6,182,212,0.4)] border-4 border-slate-950"><Wrench size={24}/></button></div>
+        <button onClick={() => setActiveTab('repairs')} className={`flex flex-col items-center p-2 rounded-xl ${activeTab === 'repairs' ? 'text-cyan-400' : 'text-slate-500'}`}><Activity size={20}/><span className="text-[10px]">Pedidos</span></button>
+        <button className="flex flex-col items-center p-2 rounded-xl text-slate-500"><User size={20}/><span className="text-[10px]">Perfil</span></button>
+      </div>
+    </div>
+  );
+};
+
+// 🛠️ TÉCNICO
+const TechApp = ({ orders, updateOrder, onLogout }) => (
+  <div className="min-h-screen bg-slate-950 p-5 text-white">
+    <div className="flex justify-between items-center mb-6"><h2 className="text-xl font-bold">Mesa Técnica</h2><button onClick={onLogout}><LogOut/></button></div>
+    <div className="space-y-3">
+      {orders.filter(o=>o.status !== 'delivered').map(o => (
+         <div key={o.id} className="bg-slate-900 p-4 rounded-xl border border-slate-800 shadow-md">
+            <div className="flex justify-between mb-2">
+               <span className="font-bold text-slate-200">{o.device}</span>
+               {o.status === 'sell_request' ? <span className="text-green-400 text-xs font-bold border border-green-500/30 px-2 py-1 rounded">VENTA</span> : <StatusBadge status={o.status}/>}
+            </div>
+            <p className="text-xs text-slate-400 mb-2">{o.issueLabel}</p>
+            {o.status === 'sell_request' && <button className="w-full bg-green-600 text-xs font-bold py-2 rounded">Valorar Equipo</button>}
+            {o.status !== 'sell_request' && o.status !== 'risk_pending' && <button onClick={() => updateOrder(o.id, {status: 'risk_pending'})} className="w-full border border-red-500/50 text-red-400 text-xs font-bold py-2 rounded mt-2 hover:bg-red-900/10">Alertar: Sin Garantía</button>}
+         </div>
+      ))}
+    </div>
+  </div>
+);
+
+const StatusBadge = ({ status }) => {
+  const colors = { received: 'text-slate-400', diagnosing: 'text-blue-400', risk_pending: 'text-orange-400 animate-pulse', risk_accepted: 'text-fuchsia-400', sell_request: 'text-green-400' };
+  return <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${colors[status] || 'text-slate-500'}`}>{status}</span>;
+};
+
+
